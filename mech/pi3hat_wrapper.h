@@ -27,9 +27,9 @@ namespace mech {
 class Pi3hatWrapper : public Pi3hatInterface {
  public:
   struct Mounting {
-    double yaw_deg = 180.0;
-    double pitch_deg = 90.0;
-    double roll_deg = -90.0;
+    double yaw_deg = 0.0; //180
+    double pitch_deg = 0.0; //90
+    double roll_deg = 0.0; //-90
 
     template <typename Archive>
     void Serialize(Archive* a) {

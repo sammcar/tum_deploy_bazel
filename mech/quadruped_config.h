@@ -68,8 +68,8 @@ struct QuadrupedConfig {
 
   Bounds bounds;
 
-  double mass_kg = 10.0;
-  double leg_mass_kg = 0.5;
+  double mass_kg = 6.0;
+  double leg_mass_kg = 1.45;
   base::Point3D center_of_mass_B;
 
   struct StandUp {
@@ -117,8 +117,8 @@ struct QuadrupedConfig {
 
   double stand_height = 0.210;
 
-  double idle_x = 0.190;
-  double idle_y = 0.140;
+  double idle_x = 0.01;
+  double idle_y = 0.093;
 
   base::Point3D default_kp_N_m = {1000.0, 1000.0, 200.0};
   base::Point3D default_kd_N_m_s = {20.0, 20.0, 20.0};

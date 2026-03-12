@@ -12,10 +12,10 @@ Use this when servos have drifted from their expected zero positions.
 # MOTOR CONFIGURATION - Edit this to match your setup
 MOTOR_CONFIG = {
     # Currently testing these motors
-    1: [1,2,3],
-    2: [4, 5, 6],
-    3: [7, 8, 9],
-    4: [10, 11, 12],
+    1: [4, 5, 6],
+    2: [1, 2, 3],
+    4: [7, 8, 9],
+    5: [10, 11, 12],
     # Add other motors as needed
     # 1: [1, 2, 3],
     # 2: [4, 5, 6],

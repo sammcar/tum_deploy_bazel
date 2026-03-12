@@ -1,5 +1,5 @@
 '''Set servo-level configuration for a quad A1 robot.'''
-
+print("No correr este codigo")
 
 import argparse
 import asyncio
@@ -101,4 +101,4 @@ async def main():
         await config_servo(args, transport, i)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    print("No correr este codigo")

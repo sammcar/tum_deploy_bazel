@@ -52,10 +52,10 @@ async def main():
 
     transport = moteus_pi3hat.Pi3HatRouter(
         servo_bus_map = {
-            1: [1, 2, 3],
-            2: [4, 5, 6],
-            3: [7, 8, 9],
-            4: [10, 11, 12],
+            1: [4, 5, 6],
+            2: [1, 2, 3],
+            4: [7, 8, 9],
+            5: [10, 11, 12],
         },
     )
     servos = [Servo(transport, x) for x in servo_ids]
