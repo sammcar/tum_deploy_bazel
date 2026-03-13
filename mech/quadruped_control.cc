@@ -385,6 +385,18 @@ class QuadrupedControl::Impl {
   }
 
   bool UpdateStatus() {
+    
+    static int contador_impresion = 0;
+    
+    // Imprimir solo 1 de cada 400 ciclos (aprox. 1 vez por segundo)
+    if (contador_impresion++ % 400 == 0) {
+        std::cout << "\rIMU -> Roll: " << imu_data_.euler_deg.roll 
+                  << " | Pitch: " << imu_data_.euler_deg.pitch 
+                  << " | Yaw: " << imu_data_.euler_deg.yaw 
+                  << "          " << std::flush;
+    }
+    // --- FIN DEL CÓDIGO NUEVO ---
+
     if (status_.mode == QM::kConfiguring) {
       // Try to update our config structure.
       UpdateConfiguringStatus();

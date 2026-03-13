@@ -28,8 +28,8 @@ class Pi3hatWrapper : public Pi3hatInterface {
  public:
   struct Mounting {
     double yaw_deg = 180.0;
-    double pitch_deg = 90.0;
-    double roll_deg = -90.0;
+    double pitch_deg = 0.0;
+    double roll_deg = -180.0;
 
     template <typename Archive>
     void Serialize(Archive* a) {

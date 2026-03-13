@@ -16,14 +16,14 @@ mach=$(uname -m)
 cd $(dirname $(dirname $(readlink -f $0)))
 
 if [[ "$mach" == "armv7l" || "$mach" == "aarch64" ]]; then
-    CONFIG="-c configs/tum.ini --quadruped_control.log_filename_base /home/pi/tum.log"
+    CONFIG="-c configs/tum.ini --quadruped_control.log_filename_base /home/tum/tum.log"
     set -x
-    cd /home/pi/tum_deploy/
+    cd /home/tum/tum_deploy_bazel/tum_deploy/
     ./performance_governor.sh
     sudo LD_LIBRARY_PATH=. chrt 99 ./quadruped $CONFIG "$@"
 elif [[ "$mach" == "x86_64" ]]; then
     set -x
-    ssh pi@192.168.16.47 tum_deploy/start-robot.sh "$@"
+    ssh tum@192.168.22.114 tum_deploy_bazel/tum_deploy/start-robot.sh "$@"
 else
     echo cannot determine what kind of machine it is
     exit 1
