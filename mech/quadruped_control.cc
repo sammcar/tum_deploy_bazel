@@ -385,17 +385,17 @@ class QuadrupedControl::Impl {
   }
 
   bool UpdateStatus() {
+
+    // static int contador_impresion = 0;
     
-    static int contador_impresion = 0;
-    
-    // Imprimir solo 1 de cada 400 ciclos (aprox. 1 vez por segundo)
-    if (contador_impresion++ % 400 == 0) {
-        std::cout << "\rIMU -> Roll: " << imu_data_.euler_deg.roll 
-                  << " | Pitch: " << imu_data_.euler_deg.pitch 
-                  << " | Yaw: " << imu_data_.euler_deg.yaw 
-                  << "          " << std::flush;
-    }
-    // --- FIN DEL CÓDIGO NUEVO ---
+    // // Imprimir solo 1 de cada 400 ciclos (aprox. 1 vez por segundo)
+    // if (contador_impresion++ % 400 == 0) {
+    //     std::cout << "\rIMU -> Roll: " << imu_data_.euler_deg.roll 
+    //               << " | Pitch: " << imu_data_.euler_deg.pitch 
+    //               << " | Yaw: " << imu_data_.euler_deg.yaw 
+    //               << "          " << std::flush;
+    // }
+    // // --- FIN DEL CÓDIGO NUEVO ---
 
     if (status_.mode == QM::kConfiguring) {
       // Try to update our config structure.
@@ -1935,7 +1935,40 @@ class QuadrupedControl::Impl {
               [](const auto& lhs, const auto& rhs) {
                 return lhs.id < rhs.id;
               });
+    
+    // --- INICIO DEL CÓDIGO CORREGIDO ---
+  // QM::kStandUp es el estado exacto donde intenta pararse
+ if (status_.mode == QM::kStandUp) {
+      std::cout << "\n[STANDUP] Reporte Completo Pata 0 -> \n";
+      for (const auto& j : control_log_->joints) {
+          if (j.id == 1 || j.id == 2 || j.id == 3) {
+              std::cout << " --- ID " << j.id << " ---\n"
+                        << "  Angulo (angle_deg):    " << j.angle_deg << "°\n"
+                        << "  Velocidad (vel_dps):   " << j.velocity_dps << "°/s\n"
+                        << "  Torque (torque_Nm):    " << j.torque_Nm << " Nm\n"
+                        << "  Energía (power):       " << (j.power ? "ON" : "OFF") << "\n"
+                        << "  Freno (zero_vel):      " << (j.zero_velocity ? "SI" : "NO") << "\n";
 
+              // Revisar variables opcionales (límites y PID)
+              std::cout << "  Escala KP (kp_scale):  ";
+              if (j.kp_scale.has_value()) std::cout << j.kp_scale.value() << "\n";
+              else std::cout << "NINGUNA\n";
+
+              std::cout << "  Escala KD (kd_scale):  ";
+              if (j.kd_scale.has_value()) std::cout << j.kd_scale.value() << "\n";
+              else std::cout << "NINGUNA\n";
+
+              std::cout << "  Límite Torque Máx:     ";
+              if (j.max_torque_Nm.has_value()) std::cout << j.max_torque_Nm.value() << " Nm\n";
+              else std::cout << "NINGUNO\n";
+
+              std::cout << "  Límite Parada (stop):  ";
+              if (j.stop_angle_deg.has_value()) std::cout << j.stop_angle_deg.value() << "°\n";
+              else std::cout << "NINGUNO\n";
+          }
+      }
+      std::cout << std::endl; // Salto de línea final
+  }
     EmitControl();
   }
 
