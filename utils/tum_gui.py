@@ -302,7 +302,7 @@ class QuadControlGUI(QMainWindow):
     update_display_signal = pyqtSignal(float, float, float, float, bool)
     update_status_signal = pyqtSignal(dict)
 
-    def __init__(self, robot_ip: str = "192.168.16.47"):
+    def __init__(self, robot_ip: str = "192.168.22.14"):
         super().__init__()
         
         self.robot_ip = robot_ip
