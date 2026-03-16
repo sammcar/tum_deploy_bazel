@@ -1131,91 +1131,83 @@ class QuadrupedControl::Impl {
     return true;
   }
 
-  void DoControl_StandUp_Prepositioning() {
+void DoControl_StandUp_Prepositioning() {
     std::vector<QC::Joint> joints;
+    // Estructura para guardar qué IDs queremos verificar y a qué ángulo
+    struct Target { int id; double angle; };
+    std::vector<Target> targets_to_check;
+
     for (const auto& leg : context_->legs) {
       QC::Joint joint;
       joint.power = true;
       joint.velocity_dps = config_.stand_up.velocity_dps;
       joint.max_torque_Nm = config_.stand_up.max_preposition_torque_Nm;
       joint.kp_scale = config_.stand_up.preposition_kp_scale;
-
+      
       auto add_joint = [&](int id, double angle_deg) {
-        joint.id = id;
-        
-        // --- CAMBIO AQUÍ ---
-        // Verificamos si el ID actual es el del hombro (coxa) de esta pata
-        if (id == leg.config.ik.shoulder.id) {
-          // Si es coxa, le enviamos la posición objetivo (Modo Posición)
-          joint.angle_deg = angle_deg;
-        } else {
-          // Si es fémur o tibia, le enviamos NaN (Modo Velocidad)
-          joint.angle_deg = std::numeric_limits<double>::quiet_NaN();
-        }
-        // -------------------
+    joint.id = id;
+    
+    // 1. Enviamos la posición objetivo
+    joint.angle_deg = angle_deg; 
+    
+    // 2. Enviamos la velocidad a la que queremos que se mueva (ej. 10°/s o 30°/s)
+    joint.velocity_dps = config_.stand_up.velocity_dps;
 
-        //joint.stop_angle_deg = angle_deg+5.0;
-        joints.push_back(joint);
-      };
-
+    // Guardamos el objetivo en la lista de verificación (solo para el software)
+    targets_to_check.push_back({id, angle_deg});
+    
+    joints.push_back(joint);
+  };
 
       auto add_stopped_joint = [&](int id) {
         joint.id = id;
         joint.velocity_dps = 0.0;
-        //joint.stop_angle_deg = {};
+        joint.angle_deg = std::numeric_limits<double>::quiet_NaN();
+        // No agregamos a targets_to_check porque este motor no debe moverse
         joints.push_back(joint);
       };
 
+      // El switch de etapas se mantiene igual
       switch (status_.state.stand_up.prepositioning_stage) {
         case 0: {
-          // First just lift the shoulders while leaving the other
-          // joints unchanged.
-          add_joint(leg.config.ik.shoulder.id,
-                    leg.shoulder_clearance_deg);
+          add_joint(leg.config.ik.shoulder.id, leg.shoulder_clearance_deg);
           add_stopped_joint(leg.config.ik.femur.id);
           add_stopped_joint(leg.config.ik.tibia.id);
           break;
         }
         case 1: {
-          // Then move the other joints into position.
-          add_joint(leg.config.ik.shoulder.id,
-                    leg.shoulder_clearance_deg);
-          add_joint(leg.config.ik.femur.id,
-                    leg.resolved_stand_up_joints.femur_deg);
-          add_joint(leg.config.ik.tibia.id,
-                    leg.resolved_stand_up_joints.tibia_deg);
+          add_joint(leg.config.ik.shoulder.id, leg.shoulder_clearance_deg);
+          add_joint(leg.config.ik.femur.id, leg.resolved_stand_up_joints.femur_deg);
+          add_joint(leg.config.ik.tibia.id, leg.resolved_stand_up_joints.tibia_deg);
           break;
         }
         case 2: {
-          // And finally put the shoulders back into place.
-          add_joint(leg.config.ik.shoulder.id,
-                    leg.resolved_stand_up_joints.shoulder_deg);
-          add_joint(leg.config.ik.femur.id,
-                    leg.resolved_stand_up_joints.femur_deg);
-          add_joint(leg.config.ik.tibia.id,
-                    leg.resolved_stand_up_joints.tibia_deg);
+          add_joint(leg.config.ik.shoulder.id, leg.resolved_stand_up_joints.shoulder_deg);
+          add_joint(leg.config.ik.femur.id, leg.resolved_stand_up_joints.femur_deg);
+          add_joint(leg.config.ik.tibia.id, leg.resolved_stand_up_joints.tibia_deg);
           break;
         }
       }
     }
 
-    // See if we can advance to the next prepositioning stage.
+    // --- NUEVA LÓGICA DE AVANCE DE ETAPA ---
     bool all_done = true;
-    for (const auto& joint : joints) {
-      const auto& joint_state = context_->GetJointState(joint.id);
-      if (!!joint.stop_angle_deg &&
-          std::abs(joint.stop_angle_deg.value_or(0.0) - joint_state.angle_deg) >
-          config_.stand_up.tolerance_deg) {
+    for (const auto& target : targets_to_check) {
+      const auto& joint_state = context_->GetJointState(target.id);
+      // Verificamos si la posición real está cerca del objetivo guardado
+      if (std::abs(target.angle - joint_state.angle_deg) > config_.stand_up.tolerance_deg) {
         all_done = false;
+        break; 
       }
     }
+
     if (all_done) {
       status_.state.stand_up.prepositioning_stage =
           std::min(status_.state.stand_up.prepositioning_stage + 1, 2);
     }
 
     ControlJoints(joints);
-  }
+}
 
   void DoControl_StandUp_Standing() {
     std::vector<QC::Leg> legs_R = old_control_log_->legs_R;
