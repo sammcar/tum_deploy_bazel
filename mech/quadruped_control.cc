@@ -1081,7 +1081,6 @@ class QuadrupedControl::Impl {
       }
     }
 
-
     // Now execute our control.
     switch (status_.state.stand_up.mode) {
       case M::kPrepositioning: {
@@ -1137,21 +1136,33 @@ class QuadrupedControl::Impl {
     for (const auto& leg : context_->legs) {
       QC::Joint joint;
       joint.power = true;
-      joint.angle_deg = std::numeric_limits<double>::quiet_NaN();
       joint.velocity_dps = config_.stand_up.velocity_dps;
       joint.max_torque_Nm = config_.stand_up.max_preposition_torque_Nm;
       joint.kp_scale = config_.stand_up.preposition_kp_scale;
 
       auto add_joint = [&](int id, double angle_deg) {
         joint.id = id;
-        joint.stop_angle_deg = angle_deg;
+        
+        // --- CAMBIO AQUÍ ---
+        // Verificamos si el ID actual es el del hombro (coxa) de esta pata
+        if (id == leg.config.ik.shoulder.id) {
+          // Si es coxa, le enviamos la posición objetivo (Modo Posición)
+          joint.angle_deg = angle_deg;
+        } else {
+          // Si es fémur o tibia, le enviamos NaN (Modo Velocidad)
+          joint.angle_deg = std::numeric_limits<double>::quiet_NaN();
+        }
+        // -------------------
+
+        //joint.stop_angle_deg = angle_deg+5.0;
         joints.push_back(joint);
       };
+
 
       auto add_stopped_joint = [&](int id) {
         joint.id = id;
         joint.velocity_dps = 0.0;
-        joint.stop_angle_deg = {};
+        //joint.stop_angle_deg = {};
         joints.push_back(joint);
       };
 
