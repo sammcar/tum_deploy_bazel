@@ -1941,8 +1941,7 @@ class QuadrupedControl::Impl {
  if (status_.mode == QM::kStandUp) {
       std::cout << "\n[STANDUP] Reporte Completo Pata 0 -> \n";
       for (const auto& j : control_log_->joints) {
-          if (j.id == 1 || j.id == 2 || j.id == 3) {
-              std::cout << " --- ID " << j.id << " ---\n"
+          std::cout << " --- ID " << j.id << " ---\n"
                         << "  Angulo (angle_deg):    " << j.angle_deg << "°\n"
                         << "  Velocidad (vel_dps):   " << j.velocity_dps << "°/s\n"
                         << "  Torque (torque_Nm):    " << j.torque_Nm << " Nm\n"
@@ -1965,7 +1964,6 @@ class QuadrupedControl::Impl {
               std::cout << "  Límite Parada (stop):  ";
               if (j.stop_angle_deg.has_value()) std::cout << j.stop_angle_deg.value() << "°\n";
               else std::cout << "NINGUNO\n";
-          }
       }
       std::cout << std::endl; // Salto de línea final
   }

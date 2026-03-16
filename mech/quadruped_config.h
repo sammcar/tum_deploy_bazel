@@ -79,7 +79,7 @@ struct QuadrupedConfig {
     base::Point3D pose_R = {0.185, 0.180, 0.300};
     double velocity_dps = 30.0;
     double velocity = 0.150;
-    double shoulder_clearance_deg = 52.0;
+    double shoulder_clearance_deg = 80.0;
     double max_preposition_torque_Nm = 3.0;
     double preposition_kp_scale = 5.0;
     double timeout_s = 10.0;
