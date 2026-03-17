@@ -653,15 +653,23 @@ class Pi3hatWrapper::Impl {
       return base::Quaternion(q.w, q.x, q.y, q.z);
     };
     attitude->timestamp = now;
-    attitude->attitude = make_quat(pi3data_.attitude.attitude);
-    attitude->rate_dps = make_point(pi3data_.attitude.rate_dps);
-    attitude->euler_deg = (180.0 / M_PI) * attitude->attitude.euler_rad();
-    attitude->accel_mps2 = make_point(pi3data_.attitude.accel_mps2);
+    //attitude->attitude = make_quat(pi3data_.attitude.attitude);
+    //attitude->rate_dps = make_point(pi3data_.attitude.rate_dps);
+    //attitude->euler_deg = (180.0 / M_PI) * attitude->attitude.euler_rad();
+    //attitude->accel_mps2 = make_point(pi3data_.attitude.accel_mps2);
     attitude->bias_dps = make_point(pi3data_.attitude.bias_dps);
     attitude->attitude_uncertainty =
         make_quat(pi3data_.attitude.attitude_uncertainty);
     attitude->bias_uncertainty_dps =
         make_point(pi3data_.attitude.bias_uncertainty_dps);
+
+          // --- MODIFICACIÓN AQUÍ ---
+    // En lugar de usar pi3data_, forzamos ceros:
+    attitude->attitude = base::Quaternion(1.0, 0.0, 0.0, 0.0); // Identidad (sin rotación)
+    attitude->rate_dps = base::Point3D(0.0, 0.0, 0.0);         // Velocidad angular cero
+    attitude->euler_deg = (180.0 / M_PI) * attitude->attitude.euler_rad();        // Ángulos de Euler cero
+    attitude->accel_mps2 = base::Point3D(0.0, 0.0, 0.0);        // Aceleración cero
+    // -------------------------
   }
 
   void FinishRF(boost::posix_time::ptime now) {
