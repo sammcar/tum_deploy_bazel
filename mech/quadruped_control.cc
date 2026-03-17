@@ -1941,7 +1941,7 @@ void DoControl_StandUp_Prepositioning() {
     
     // --- INICIO DEL CÓDIGO CORREGIDO ---
   // QM::kStandUp es el estado exacto donde intenta pararse
- if (status_.mode == QM::kStandUp) {
+    if (status_.mode == QM::kStandUp) {
       std::cout << "\n[STANDUP] Reporte Completo Pata 0 -> \n";
       for (const auto& j : control_log_->joints) {
           std::cout << " --- ID " << j.id << " ---\n"
@@ -1970,7 +1970,27 @@ void DoControl_StandUp_Prepositioning() {
       }
       std::cout << std::endl; // Salto de línea final
   }
-    EmitControl();
+    
+      // --- NUEVO BLOQUE CON CONTADOR ---
+    static int walk_print_counter = 0; 
+
+    if (status_.mode == QM::kWalk) {
+      // Solo entra aquí una vez cada 200 iteraciones
+      if (walk_print_counter++ % 200 == 0) { 
+        std::cout << "\n[WALK] Comandos de Articulación (Muestra cada 0.5s) -> \n";
+        for (const auto& j : control_log_->joints) {
+          // Imprime el ID y el ángulo objetivo calculado por la cinemática inversa
+          std::cout << " ID " << j.id << ": " << j.angle_deg 
+                    << "° | Vel: " << j.velocity_dps << "°/s\n";
+        }
+      }
+    } else {
+      // Opcional: resetear el contador al salir del modo walk
+      walk_print_counter = 0;
+    }
+    // ---------------------------------
+
+  EmitControl();
   }
 
   void EmitControl() {
