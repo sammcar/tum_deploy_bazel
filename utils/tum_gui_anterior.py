@@ -79,36 +79,24 @@ class GamepadThread(QThread):
                             old = self.state["hat_y"]
                             self.state["hat_y"] = -event.state
                             self.state["hat_pressed"] = (old == 0 and self.state["hat_y"] != 0)
-                        
-                        # Gatillos como Eje Analógico (XInput / Genérico)
-                        elif event.code in ["ABS_Z", "ABS_BRAKE"]:  
+                        elif event.code == "ABS_Z":  # Left trigger
                             old_lt = self.state["lt"]
                             self.state["lt"] = event.state / 255.0
+                            # Detect LT press
                             self.state["lt_pressed"] = (old_lt < 0.5 and self.state["lt"] >= 0.5)
-                        elif event.code in ["ABS_RZ", "ABS_GAS"]:  
+                        elif event.code == "ABS_RZ":  # Right trigger
                             old_rt = self.state["rt"]
                             self.state["rt"] = event.state / 255.0
+                            # Detect RT press
                             self.state["rt_pressed"] = (old_rt < 0.5 and self.state["rt"] >= 0.5)
 
                     elif event.ev_type == "Key":
-                        # Mapeo corregido (Intercambiamos WEST/NORTH y agregamos soporte a botones TR2/TL2)
-                        bit_map = {
-                            "BTN_SOUTH": 0, "BTN_A": 0,    # A
-                            "BTN_EAST": 1,  "BTN_B": 1,    # B
-                            "BTN_NORTH": 2, "BTN_X": 2,    # Físicamente X mapeado lógico al bit 2
-                            "BTN_WEST": 3,  "BTN_Y": 3,    # Físicamente Y mapeado lógico al bit 3
-                            "BTN_TL": 4,                   # LB
-                            "BTN_TR": 5,                   # RB
-                            "BTN_TR2": 6,                  # RT (si es botón digital)
-                            "BTN_TL2": 7                   # LT (si es botón digital)
-                        }
-                        
-                        if event.code in bit_map:
-                            bit = bit_map[event.code]
+                        # BTN_TL is left bumper (bit 4)
+                        if event.code == "BTN_TL":
                             if event.state:
-                                self.state["buttons"] |= (1 << bit)
+                                self.state["buttons"] |= (1 << 4)
                             else:
-                                self.state["buttons"] &= ~(1 << bit)
+                                self.state["buttons"] &= ~(1 << 4)
 
                 self.state_changed.emit(self.state.copy())
                 QThread.msleep(8)
@@ -123,53 +111,103 @@ class GamepadThread(QThread):
         self.wait(2000)
 
 # ------------------------------------------------------------------
-class VirtualJoystick(QWidget):
-    """Visualizador de Joystick Virtual (Solo visualización)"""
-    def __init__(self, color="#34495e", handle_color="#0abde3"):
+class VelocityDisplay(QWidget):
+    """Beautiful velocity visualization widget with responsive sizing"""
+    
+    def __init__(self):
         super().__init__()
-        self.setMinimumSize(150, 150)
-        self.val_x = 0.0
-        self.val_y = 0.0
-        self.color = QColor(color)
-        self.handle_color = QColor(handle_color)
-        
+        self.setMinimumSize(300, 300)
+        self.setMaximumSize(600, 600)  # Increased from 500 to 600
+        self.vx = 0.0
+        self.vy = 0.0
+        self.wz = 0.0
+        self.max_speed = 1.0
+        self.body_pose_mode = False
 
     def sizeHint(self):
-        return QSize(200, 200)
+        return QSize(400, 400)  # Increased from 350 to 400
 
-    def set_values(self, x: float, y: float):
-        """Actualiza la posición del indicador"""
-        self.val_x = max(-1.0, min(1.0, x))
-        self.val_y = max(-1.0, min(1.0, y))
+    def set_values(self, vx: float, vy: float, wz: float, max_speed: float, body_pose: bool = False):
+        """Update display values (thread-safe via signal/slot)"""
+        self.vx = vx
+        self.vy = vy
+        self.wz = wz
+        self.max_speed = max_speed
+        self.body_pose_mode = body_pose
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        width, height = self.width(), self.height()
-        size = min(width, height)
-        cx, cy = width // 2, height // 2
-        radius = size // 2 - 15
+        width = self.width()
+        height = self.height()
+        center_x = width // 2
+        center_y = height // 2
+        radius = min(width, height) // 2 - 40
 
-        # Fondo del joystick
-        painter.setPen(QPen(QColor("#bdc3c7"), 2))
-        painter.setBrush(self.color)
-        painter.drawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
-
-        # Líneas cruzadas centrales
-        painter.drawLine(cx, cy - radius, cx, cy + radius)
-        painter.drawLine(cx - radius, cy, cx + radius, cy)
-
-        # Posición del stick
-        stick_radius = 18
-        px = cx + int(self.val_x * (radius - stick_radius))
-        py = cy + int(self.val_y * (radius - stick_radius))
-
-        # Dibujar el "handle"
+        # Background gradient
+        gradient = QRadialGradient(center_x, center_y, radius + 20)
+        gradient.setColorAt(0, QColor(45, 45, 95))
+        gradient.setColorAt(1, QColor(34, 32, 71))
+        painter.setBrush(gradient)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self.handle_color)
-        painter.drawEllipse(px - stick_radius, py - stick_radius, stick_radius * 2, stick_radius * 2)
+        painter.drawEllipse(center_x - radius - 20, center_y - radius - 20,
+                           2 * (radius + 20), 2 * (radius + 20))
+
+        # Grid circles
+        painter.setPen(QPen(QColor(91, 95, 199), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for i in [0.33, 0.66, 1.0]:
+            r = int(radius * i)
+            painter.drawEllipse(center_x - r, center_y - r, 2 * r, 2 * r)
+
+        # Axes
+        painter.setPen(QPen(QColor(124, 58, 237), 2))
+        painter.drawLine(center_x - radius, center_y, center_x + radius, center_y)
+        painter.drawLine(center_x, center_y - radius, center_x, center_y + radius)
+
+        # Translation vector (main indicator)
+        if not self.body_pose_mode:
+            # Calculate position based on velocity
+            max_vel = max(abs(self.max_speed), 0.1)
+            x_offset = (self.vy / CMD_MAX_RATE_Y) * radius
+            y_offset = -(self.vx / max_vel) * radius
+
+            target_x = center_x + x_offset
+            target_y = center_y + y_offset
+
+            # Draw velocity vector line
+            if abs(x_offset) > 2 or abs(y_offset) > 2:
+                painter.setPen(QPen(QColor(167, 139, 250, 200), 3))
+                painter.drawLine(center_x, center_y, int(target_x), int(target_y))
+
+            # Draw velocity indicator circle
+            indicator_size = 40
+            gradient = QRadialGradient(target_x, target_y, indicator_size // 2)
+            gradient.setColorAt(0, QColor(167, 139, 250, 220))
+            gradient.setColorAt(1, QColor(167, 139, 250, 80))
+            painter.setBrush(gradient)
+            painter.setPen(QPen(QColor(167, 139, 250), 2))
+            painter.drawEllipse(int(target_x - indicator_size // 2),
+                               int(target_y - indicator_size // 2),
+                               indicator_size, indicator_size)
+
+        # Direction labels with better visibility
+        painter.setPen(QColor(196, 181, 253))
+        font = painter.font()
+        font.setPointSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+        
+        # Position labels - FWD and BACK are good, LEFT and RIGHT need to be more inside
+        label_distance_vertical = radius + 15
+        label_distance_horizontal = radius - 10  # Bring LEFT and RIGHT closer to center
+        
+        painter.drawText(center_x - 30, center_y - label_distance_vertical, "ADELANTE")
+        painter.drawText(center_x - label_distance_horizontal - 45, center_y + 5, "IZQUIERDA")
+        painter.drawText(center_x + label_distance_horizontal - 35, center_y + 5, "DERECHA")
+        painter.drawText(center_x - 20, center_y + label_distance_vertical + 5, "ATRÁS")
 
 # ------------------------------------------------------------------
 class StatusIndicator(QWidget):
@@ -189,8 +227,8 @@ class StatusIndicator(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # LED circle (Verde brillante o gris inactivo)
-        color = QColor("#2ecc71") if self.active else QColor("#7f8c8d")
+        # LED circle
+        color = QColor(16, 185, 129) if self.active else QColor(91, 95, 199)
         painter.setBrush(color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(5, 10, 20, 20)
@@ -223,21 +261,22 @@ class BatteryWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Battery outline
-        painter.setPen(QPen(QColor("#bdc3c7"), 2))
-        painter.setBrush(QColor("#34495e"))
+        painter.setPen(QPen(QColor(167, 139, 250), 2))
+        painter.setBrush(QColor(45, 45, 95))
         painter.drawRoundedRect(10, 15, 100, 35, 5, 5)
-        painter.drawRoundedRect(110, 25, 8, 15, 3, 3)
+        painter.drawRoundedRect(110, 25, 8, 15, 3, 3)  # Terminal
 
         # Battery fill with gradient
         fill_width = int(96 * self.percentage / 100)
         
         if self.percentage > 60:
-            color = QColor("#2ecc71")  # Green
+            color = QColor(16, 185, 129)  # Green
         elif self.percentage > 30:
-            color = QColor("#feca57")  # Yellow
+            color = QColor(245, 158, 11)  # Yellow
         else:
-            color = QColor("#e74c3c")  # Red
+            color = QColor(239, 68, 68)  # Red
 
+        # Create gradient for fill
         gradient = QLinearGradient(12, 17, 12, 48)
         gradient.setColorAt(0, color.lighter(120))
         gradient.setColorAt(1, color)
@@ -246,6 +285,7 @@ class BatteryWidget(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(12, 17, fill_width, 31, 3, 3)
 
+        # Percentage text
         painter.setPen(Qt.GlobalColor.white)
         font = painter.font()
         font.setPointSize(9)
@@ -262,7 +302,7 @@ class QuadControlGUI(QMainWindow):
     update_display_signal = pyqtSignal(float, float, float, float, bool)
     update_status_signal = pyqtSignal(dict)
 
-    def __init__(self, robot_ip: str = "192.168.22.14"):
+    def __init__(self, robot_ip: str = "192.168.16.47"):
         super().__init__()
         
         self.robot_ip = robot_ip
@@ -276,14 +316,13 @@ class QuadControlGUI(QMainWindow):
             "buttons": 0, "hat_x": 0, "hat_y": 0, "lt": 0, "rt": 0
         }
         self.body_pose_mode = False
-        self.prev_buttons = 0  # <--- AÑADIR ESTA LÍNEA AQUÍ
         
         # Websocket
         self.websocket = None
         self.ws_connected = False
         
         # Settings
-        self.enable_strafe = False  
+        self.enable_strafe = True  
         self.always_step = False
         self.record_data = False
         self.last_trigger_time = 0.0
@@ -313,19 +352,18 @@ class QuadControlGUI(QMainWindow):
         self.setMinimumSize(1000, 700)
         
         # Styling - Purple/Blue theme with high contrast
-        # Styling - Tema oscuro con acentos Cyan (#0abde3) y Gris (#bdc3c7)
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #222f3e;
+                background-color: #222047;
             }
             QGroupBox {
-                color: #ecf0f1;
-                border: 2px solid #bdc3c7;
+                color: #e0e0ff;
+                border: 2px solid #5b5fc7;
                 border-radius: 8px;
                 margin-top: 6px;
                 font-weight: bold;
                 padding-top: 5px;
-                background-color: #34495e;
+                background-color: #2d2d5f;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -343,17 +381,17 @@ class QuadControlGUI(QMainWindow):
                 height: 16px;
             }
             QRadioButton::indicator:unchecked {
-                background-color: #222f3e;
-                border: 2px solid #bdc3c7;
+                background-color: #3d3d7a;
+                border: 2px solid #5b5fc7;
                 border-radius: 8px;
             }
             QRadioButton::indicator:checked {
-                background-color: #0abde3;
-                border: 2px solid #0abde3;
+                background-color: #7c3aed;
+                border: 2px solid #a78bfa;
                 border-radius: 8px;
             }
             QLabel {
-                color: #ecf0f1;
+                color: #e0e0ff;
             }
             QCheckBox {
                 color: #ffffff;
@@ -365,30 +403,30 @@ class QuadControlGUI(QMainWindow):
                 height: 16px;
             }
             QCheckBox::indicator:unchecked {
-                background-color: #222f3e;
-                border: 2px solid #bdc3c7;
+                background-color: #3d3d7a;
+                border: 2px solid #5b5fc7;
                 border-radius: 3px;
             }
             QCheckBox::indicator:checked {
-                background-color: #0abde3;
-                border: 2px solid #0abde3;
+                background-color: #7c3aed;
+                border: 2px solid #a78bfa;
                 border-radius: 3px;
             }
             QSlider::groove:horizontal {
                 height: 8px;
-                background: #222f3e;
+                background: #3d3d7a;
                 border-radius: 4px;
             }
             QSlider::handle:horizontal {
-                background: #0abde3;
+                background: #7c3aed;
                 width: 18px;
                 margin: -5px 0;
                 border-radius: 9px;
             }
             QTextEdit {
-                background-color: #34495e;
-                color: #ecf0f1;
-                border: 1px solid #bdc3c7;
+                background-color: #2d2d5f;
+                color: #e0e0ff;
+                border: 1px solid #5b5fc7;
                 border-radius: 5px;
                 font-family: 'Courier New';
                 font-size: 11px;
@@ -404,6 +442,44 @@ class QuadControlGUI(QMainWindow):
 
         header_container = QHBoxLayout()
         
+        # Talentum logo (on the left)
+        talentum_logo_label = QLabel()
+        try:
+            from pathlib import Path
+            script_dir = Path(__file__).parent
+            talentum_path = script_dir / "gui_assets" / "talentum_logo.jpeg"
+            if talentum_path.exists():
+                talentum_pixmap = QPixmap(str(talentum_path))
+                
+                # Calcular el recorte desde el centro
+                original_width = talentum_pixmap.width()
+                original_height = talentum_pixmap.height()
+                
+                # Factor de zoom (1.5 = 150%, 2.0 = 200%, etc.)
+                zoom_factor = 1.5
+                
+                crop_width = int(original_width / zoom_factor)
+                crop_height = int(original_height / zoom_factor)
+                
+                # Calcular posición del recorte (centrado)
+                x = (original_width - crop_width) // 2
+                y = (original_height - crop_height) // 2
+                
+                # Recortar desde el centro
+                cropped = talentum_pixmap.copy(x, y, crop_width, crop_height)
+                
+                # Escalar al tamaño del contenedor
+                talentum_logo_label.setPixmap(cropped.scaled(200, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            else:
+                talentum_logo_label.setText("TALENTUM")
+                talentum_logo_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
+        except:
+            talentum_logo_label.setText("TALENTUM")
+            talentum_logo_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
+        
+        talentum_logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        talentum_logo_label.setFixedWidth(200)
+        talentum_logo_label.setContentsMargins(0, 0, 0, 0)
         # Main title
         header = QLabel("PLATAFORMA CUADRUPEDA TUM")
         header.setStyleSheet("""
@@ -411,233 +487,211 @@ class QuadControlGUI(QMainWindow):
             font-size: 28px;
             font-weight: bold;
             padding: 8px;
-            background: #34495e;
-            border: 2px solid #bdc3c7;
+            background: #5b5fc7;
             border-radius: 10px;
         """)
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Control mode indicator
+        # Control mode indicator (velocity vs pose)
         self.control_mode_label = QLabel("CONTROL DE VELOCIDAD")
         self.control_mode_label.setStyleSheet("""
-            color: #feca57;
+            color: #ffffff;
             font-size: 16px;
             font-weight: bold;
             padding: 8px 15px;
-            background-color: #34495e;
-            border: 1px solid #bdc3c7;
+            background-color: #5b5fc7;
             border-radius: 8px;
         """)
         self.control_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.control_mode_label.setMinimumWidth(200)
         
-        header_container.addWidget(header, stretch=1)# === HEADER & STATUS BAR UNIFICADO ===
-        header_container = QHBoxLayout()
-        header_container.setSpacing(10)
+        header_container.addWidget(talentum_logo_label)
+        header_container.addWidget(header, stretch=1)
+        header_container.addWidget(self.control_mode_label)
         
-        # Main title
-        header = QLabel("PLATAFORMA CUADRUPEDA TUM")
-        header.setStyleSheet("""
-            color: #ffffff;
-            font-size: 24px;
-            font-weight: bold;
-            padding: 8px;
-            background: #34495e;
-            border: 2px solid #bdc3c7;
-            border-radius: 10px;
-        """)
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addLayout(header_container)
+
+        # === TOP BAR - Status Indicators ===
+        top_bar = QHBoxLayout()
         
-        # Control mode indicator
-        self.control_mode_label = QLabel("CONTROL DE VELOCIDAD")
-        self.control_mode_label.setStyleSheet("""
-            color: #feca57;
-            font-size: 14px;
-            font-weight: bold;
-            padding: 8px 15px;
-            background-color: #34495e;
-            border: 1px solid #bdc3c7;
-            border-radius: 8px;
-        """)
-        self.control_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Instanciar widgets de estado
         self.connection_indicator = StatusIndicator("CONECTADO")
         self.gamepad_indicator = StatusIndicator("MANDO")
         self.battery_widget = BatteryWidget()
         
-        # Añadir todo a la misma barra superior para evitar que se oculte
-        header_container.addWidget(header, stretch=1)
-        header_container.addWidget(self.control_mode_label)
-        header_container.addWidget(self.connection_indicator)
-        header_container.addWidget(self.gamepad_indicator)
-        header_container.addWidget(self.battery_widget)
+        top_bar.addWidget(self.connection_indicator)
+        top_bar.addWidget(self.gamepad_indicator)
+        top_bar.addStretch()
+        top_bar.addWidget(self.battery_widget)
         
-        main_layout.addLayout(header_container)
+        main_layout.addLayout(top_bar)
 
-
-        header_container.addWidget(self.control_mode_label)
+        # === MAIN CONTENT ===
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(12)
         
-        main_layout.addLayout(header_container)
-
-        # === JOYSTICKS (Sección Superior) ===
-        joysticks_panel = QVBoxLayout()
+        # === LEFT PANEL - Velocity Display ===
+        left_panel = QVBoxLayout()
         
-        vel_label = QLabel("<h2 style='color: #0abde3;'>Estado de Joysticks</h2>")
+        vel_label = QLabel("<h2 style='color: #a78bfa;'>Comando de Velocidad</h2>")
         vel_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        joysticks_panel.addWidget(vel_label)
+        left_panel.addWidget(vel_label)
         
-        joysticks_layout = QHBoxLayout()
+        self.velocity_display = VelocityDisplay()
+        self.velocity_display.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+        left_panel.addWidget(self.velocity_display, stretch=1)
         
-        # Joystick Izquierdo
-        joy_l_layout = QVBoxLayout()
-        lbl_l = QLabel("IZQUIERDO")
-        lbl_l.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_l.setStyleSheet("color: #bdc3c7; font-weight: bold;")
-        self.joy_L = VirtualJoystick(handle_color="#0abde3")  # Cyan
-        joy_l_layout.addWidget(lbl_l)
-        joy_l_layout.addWidget(self.joy_L, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        # Joystick Derecho
-        joy_r_layout = QVBoxLayout()
-        lbl_r = QLabel("DERECHO")
-        lbl_r.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_r.setStyleSheet("color: #bdc3c7; font-weight: bold;")
-        self.joy_R = VirtualJoystick(handle_color="#feca57")  # Amarillo
-        joy_r_layout.addWidget(lbl_r)
-        joy_r_layout.addWidget(self.joy_R, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        joysticks_layout.addLayout(joy_l_layout)
-        joysticks_layout.addLayout(joy_r_layout)
-        
-        joysticks_panel.addLayout(joysticks_layout)
-        
-        # Velocity magnitude display
+        # Velocity magnitude display (below joystick)
         self.velocity_magnitude_label = QLabel("Velocidad: 0.00 m/s")
         self.velocity_magnitude_label.setStyleSheet("""
-            color: #0abde3;
+            color: #a78bfa;
             font-size: 16px;
             font-weight: bold;
             padding: 8px;
-            background-color: #34495e;
-            border: 1px solid #bdc3c7;
+            background-color: #2d2d5f;
             border-radius: 6px;
         """)
         self.velocity_magnitude_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        joysticks_panel.addWidget(self.velocity_magnitude_label)
+        left_panel.addWidget(self.velocity_magnitude_label)
         
-        main_layout.addLayout(joysticks_panel, stretch=2)
+        left_panel.addStretch()
+        
+        content_layout.addLayout(left_panel, stretch=1)
 
-        # === PANELES DE CONTROL (Sección Inferior) ===
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(10)
+        # === RIGHT PANEL - Controls ===
+        right_panel = QVBoxLayout()
+        right_panel.setSpacing(10)
+        
+        # Create a container widget for right panel with max width
+        right_panel_widget = QWidget()
+        right_panel_widget.setMaximumWidth(500)  # Limit width when maximized
+        right_panel_widget.setLayout(right_panel)
 
-        # 1. Mode Selection
+        # Mode Selection - GRID LAYOUT (2 columns)
         mode_group = QGroupBox("Modo del Robot")
         mode_layout = QGridLayout()
         mode_layout.setSpacing(6)
+        mode_layout.setContentsMargins(8, 12, 8, 8)
+        
+        # Create button group for mutual exclusivity
         self.mode_button_group = QButtonGroup(self)
         
         modes = [
-            ("Apagar", "off"), ("Detener", "stop"), ("Reposo", "idle"),
-            ("Caminar", "walk"), ("Saltar", "pronk"), ("Sentadilla", "situp")
+            ("Apagar", "off"),
+            ("Detener", "stop"),
+            ("Reposo", "idle"),
+            ("Caminar", "walk"),
+            ("Saltar", "pronk"),
+            ("Sentadilla", "situp")
         ]
+        
         self.mode_radios = {}
         for i, (label, mode_val) in enumerate(modes):
             radio = QRadioButton(label)
             self.mode_button_group.addButton(radio)
-            if mode_val == "stop": radio.setChecked(True)
+            if mode_val == "stop":
+                radio.setChecked(True)
+            
             self.mode_radios[mode_val] = radio
             mode_layout.addWidget(radio, i // 2, i % 2)
         
         self.mode_button_group.buttonClicked.connect(self.on_mode_changed)
+        
         mode_group.setLayout(mode_layout)
-        controls_layout.addWidget(mode_group)
+        right_panel.addWidget(mode_group)
 
-        # 2. Speed Settings
+        # Speed Settings - SIMPLIFIED (no presets)
         speed_group = QGroupBox("Límite de Velocidad")
         speed_layout = QVBoxLayout()
+        speed_layout.setSpacing(8)
+        
+        # Speed slider
         speed_control = QHBoxLayout()
         
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
-        self.speed_slider.setRange(1, 20)
-        self.speed_slider.setValue(5)
+        self.speed_slider.setRange(1, 20)  # 0.1 to 2.0 m/s
+        self.speed_slider.setValue(5)  # 0.5 m/s default
         self.speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.speed_slider.setTickInterval(5)
         
         self.speed_label = QLabel("0.5 m/s")
-        self.speed_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0abde3;")
+        self.speed_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #a78bfa;")
         self.speed_label.setMinimumWidth(80)
         self.speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         self.speed_slider.valueChanged.connect(self.on_speed_changed)
         
         speed_control.addWidget(QLabel("Lento"))
         speed_control.addWidget(self.speed_slider)
         speed_control.addWidget(QLabel("Rápido"))
+        speed_control.addWidget(self.speed_label)
         
         speed_layout.addLayout(speed_control)
-        speed_layout.addWidget(self.speed_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        
+        # Controller hint
         hint_label = QLabel("Usa gatillos (LT/RT) para ajustar velocidad")
-        hint_label.setStyleSheet("color: #bdc3c7; font-size: 10px; font-style: italic;")
-        speed_layout.addWidget(hint_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        hint_label.setStyleSheet("color: #c4b5fd; font-size: 10px; font-style: italic;")
+        speed_layout.addWidget(hint_label)
+        
         speed_group.setLayout(speed_layout)
-        controls_layout.addWidget(speed_group)
+        right_panel.addWidget(speed_group)
 
-       # 3. Movement Options (Mutuamente Exclusivas)
-        options_group = QGroupBox("Opciones de Marcha")
+        # Movement Options
+        options_group = QGroupBox("Opciones de Movimiento")
         options_layout = QVBoxLayout()
+        options_layout.setSpacing(6)
         
-        self.strafe_check = QCheckBox("Habilitar Desplazamiento Lateral (Y)")
-        self.always_step_check = QCheckBox("Modo Caminata (A)")
-        self.record_check = QCheckBox("Grabar datos de telemetría (B)")
-        
-        # Grupo exclusivo para que solo uno esté activo
-        self.options_bg = QButtonGroup(self)
-        self.options_bg.setExclusive(False)
-        self.options_bg.addButton(self.strafe_check)
-        self.options_bg.addButton(self.always_step_check)
-        self.options_bg.addButton(self.record_check)
-        
-        #self.strafe_check.setChecked(True) # Seleccionado por defecto
-        
+        self.strafe_check = QCheckBox("Habilitar Desplazamiento Lateral")
+        self.strafe_check.setChecked(True)  # ✅ Default to enabled
         self.strafe_check.toggled.connect(lambda c: setattr(self, "enable_strafe", c))
+        
+        self.always_step_check = QCheckBox("Siempre Caminar (Modo Caminar)")
         self.always_step_check.toggled.connect(lambda c: setattr(self, "always_step", c))
+        
+        self.record_check = QCheckBox("Grabar Datos de Telemetría")
         self.record_check.toggled.connect(lambda c: setattr(self, "record_data", c))
         
         options_layout.addWidget(self.strafe_check)
         options_layout.addWidget(self.always_step_check)
         options_layout.addWidget(self.record_check)
+        
         options_group.setLayout(options_layout)
-        controls_layout.addWidget(options_group)
+        right_panel.addWidget(options_group)
 
-        # 4. Telemetry & Help (Juntos en una columna)
-        info_layout = QVBoxLayout()
+        # Telemetry - COMPACT
         telem_group = QGroupBox("Telemetría")
-        telem_inner = QVBoxLayout()
+        telem_layout = QVBoxLayout()
+        
         self.telemetry_text = QTextEdit()
         self.telemetry_text.setReadOnly(True)
-        self.telemetry_text.setMaximumHeight(80)
-        telem_inner.addWidget(self.telemetry_text)
-        telem_group.setLayout(telem_inner)
+        self.telemetry_text.setMaximumHeight(150)
         
-        help_group = QGroupBox("Controles")
-        help_inner = QVBoxLayout()
-        help_text = QLabel("Sticks: Mover/Rotar | <b>LB: Postura</b><br>"
-                           "<b>Cruceta:</b> Modos | <b>X:</b> Detener | <b>RB:</b> Apagar<br>"
-                           "<b>LT/RT:</b> Velocidad | <b>Y/A/B:</b> Opciones (Exclusivas)")
-        
-        help_text.setWordWrap(True)
-        help_text.setStyleSheet("font-size: 10px;")
-        help_inner.addWidget(help_text)
-        help_group.setLayout(help_inner)
-        
-        info_layout.addWidget(telem_group)
-        info_layout.addWidget(help_group)
-        controls_layout.addLayout(info_layout)
+        telem_layout.addWidget(self.telemetry_text)
+        telem_group.setLayout(telem_layout)
+        right_panel.addWidget(telem_group)
 
-        main_layout.addLayout(controls_layout, stretch=1)
+        # Gamepad Help - COMPACT
+        help_group = QGroupBox("Controles del Mando")
+        help_layout = QVBoxLayout()
+        help_text = QLabel(
+            "• <b>Stick Izq:</b> Mover y Desplazamiento<br>"
+            "• <b>Stick Der:</b> Rotar<br>"
+            "• <b>LB:</b> Modo Control de Postura<br>"
+            "• <b>LT/RT:</b> Disminuir/Aumentar Velocidad<br>"
+            "• <b>Cruceta:</b> Cambiar Modos"
+        )
+        help_text.setWordWrap(True)
+        help_layout.addWidget(help_text)
+        help_group.setLayout(help_layout)
+        right_panel.addWidget(help_group)
+
+        right_panel.addStretch()
         
-        # === FAULT DISPLAY (Bottom) ===
+        content_layout.addWidget(right_panel_widget, stretch=1)
+
+        main_layout.addLayout(content_layout, stretch=1)
 
         # === FAULT DISPLAY (Bottom) ===
         self.fault_label = QLabel()
@@ -659,8 +713,8 @@ class QuadControlGUI(QMainWindow):
         self.update_status_signal.connect(self.update_ui_from_status)
     
     def update_velocity_display(self, vx: float, vy: float, wz: float, max_speed: float, body_pose: bool):
-        """Update velocity magnitude label"""
-        # Ya no usamos self.velocity_display
+        """Update velocity display and magnitude label"""
+        self.velocity_display.set_values(vx, vy, wz, max_speed, body_pose)
         
         # Update magnitude label
         vel_magnitude = math.sqrt(vx**2 + vy**2)
@@ -688,25 +742,23 @@ class QuadControlGUI(QMainWindow):
         if self.body_pose_mode:
             self.control_mode_label.setText("CONTROL DE POSTURA")
             self.control_mode_label.setStyleSheet("""
-                color: #222f3e;
+                color: #ffffff;
                 font-size: 16px;
                 font-weight: bold;
                 padding: 8px 15px;
-                background-color: #feca57;
+                background-color: #10b981;
                 border-radius: 8px;
             """)
         else:
             self.control_mode_label.setText("CONTROL DE VELOCIDAD")
             self.control_mode_label.setStyleSheet("""
-                color: #feca57;
+                color: #ffffff;
                 font-size: 16px;
                 font-weight: bold;
                 padding: 8px 15px;
-                background-color: #34495e;
-                border: 1px solid #bdc3c7;
+                background-color: #5b5fc7;
                 border-radius: 8px;
             """)
-
 
     def on_speed_changed(self):
         """Update speed label"""
@@ -716,94 +768,48 @@ class QuadControlGUI(QMainWindow):
     def on_gamepad_update(self, state: dict):
         """Handle gamepad state updates"""
         self.joy_state = state
-        current_buttons = state["buttons"]
-        
-        # --- DETECCIÓN DE ESTADO DE BOTONES ---
-        lb_pressed_now = bool(current_buttons & (1 << 4))
-        lb_pressed_prev = bool(self.prev_buttons & (1 << 4))
-        
-        # Necesitamos el estado previo de RB para usarlo como botón de apagado
-        rb_pressed_now = bool(current_buttons & (1 << 5))
-        rb_pressed_prev = bool(self.prev_buttons & (1 << 5))
-        
-        a_pressed_now = bool(current_buttons & (1 << 0))
-        a_pressed_prev = bool(self.prev_buttons & (1 << 0))
-        
-        b_pressed_now = bool(current_buttons & (1 << 1))
-        b_pressed_prev = bool(self.prev_buttons & (1 << 1))
-        
-        x_pressed_now = bool(current_buttons & (1 << 2))
-        x_pressed_prev = bool(self.prev_buttons & (1 << 2))
-        
-        y_pressed_now = bool(current_buttons & (1 << 3))
-        y_pressed_prev = bool(self.prev_buttons & (1 << 3))
-
-        # ¡CORRECCIÓN! Lectura robusta de gatillos (si el análogo pasa el 50% o se presiona el botón digital)
-        lt_pressed_now = state.get("lt", 0.0) > 0.5 or bool(current_buttons & (1 << 7))
-        rt_pressed_now = state.get("rt", 0.0) > 0.5 or bool(current_buttons & (1 << 6))
-
-        # --- CONTROL DE POSTURA (LB) ---
         old_body_pose = self.body_pose_mode
-        if lb_pressed_now and not lb_pressed_prev:
-            self.body_pose_mode = not self.body_pose_mode
-            
+        self.body_pose_mode = bool(state["buttons"] & (1 << 4))
+        
+        # Update control mode indicator if body pose mode changed
         if old_body_pose != self.body_pose_mode:
             self.update_control_mode_indicator()
-
-        # --- OPCIONES INDEPENDIENTES (Y, A, B) ---
-        if y_pressed_now and not y_pressed_prev:
-            self.strafe_check.setChecked(not self.strafe_check.isChecked())
-            
-        if a_pressed_now and not a_pressed_prev:
-            self.always_step_check.setChecked(not self.always_step_check.isChecked())
-            
-        if b_pressed_now and not b_pressed_prev:
-            self.record_check.setChecked(not self.record_check.isChecked())
-
-        # --- MODOS RÁPIDOS (X = Detener, RB = Apagar) ---
-        if x_pressed_now and not x_pressed_prev:
-            self.set_mode("stop")
-            
-        # Asignamos "Apagar" a RB porque RT ahora controla la velocidad
-        if rb_pressed_now and not rb_pressed_prev:
-            self.set_mode("off")
-
-        self.prev_buttons = current_buttons
-
-        # --- Actualizar la posición visual de los joysticks ---
-        self.joy_L.set_values(state["lx"], -state["ly"])
-        self.joy_R.set_values(state["rx"], -state["ry"])
+        
+        # Update gamepad indicator
         self.gamepad_indicator.set_active(True)
         
-        # --- SELECCIÓN DE MODO (Cruceta original) ---
+        # Handle mode selection with D-pad (cruceta)
         if state["hat_pressed"]:
             hat_x = state["hat_x"]
             hat_y = state["hat_y"]
-            if abs(hat_y) > abs(hat_x):
-                if hat_y > 0: self.set_mode("idle")
-                elif hat_y < 0: self.set_mode("situp")
-            else:
-                if hat_x > 0: self.set_mode("walk")
-                elif hat_x < 0: self.set_mode("pronk")
+            if abs(hat_y) > abs(hat_x):  # Prioridad vertical (arriba/abajo)
+                if hat_y > 0:  # Arriba -> Reposo (idle)
+                    self.set_mode("idle")
+                elif hat_y < 0:  # Abajo -> Sentadilla (situp)
+                    self.set_mode("situp")
+            else:  # Horizontal (izquierda/derecha)
+                if hat_x > 0:  # Izquierda -> Caminar (walk)
+                    self.set_mode("walk")
+                elif hat_x < 0:  # Derecha -> Saltar (pronk)
+                    self.set_mode("pronk")
 
-        # --- ¡CORRECCIÓN! Ajuste de velocidad con LT (-) y RT (+) ---
-        current_time = time.time()
-        if lt_pressed_now and (current_time - self.last_trigger_time > 0.2):
-            new_val = max(1, self.speed_slider.value() - 1)
-            self.speed_slider.setValue(new_val)
-            self.last_trigger_time = current_time
-            
-        if rt_pressed_now and (current_time - self.last_trigger_time > 0.2):
-            new_val = min(20, self.speed_slider.value() + 1)
-            self.speed_slider.setValue(new_val)
-            self.last_trigger_time = current_time
+        # Ajuste de velocidad con triggers (ya es de 0.1 en 0.1, no cambia)
+        if state.get("lt_pressed", False):
+            if time.time() - self.last_trigger_time > 0.2:
+                new_val = max(1, self.speed_slider.value() - 1)
+                self.speed_slider.setValue(new_val)
+                self.last_trigger_time = time.time()
+        if state.get("rt_pressed", False):
+            if time.time() - self.last_trigger_time > 0.2:
+                new_val = min(20, self.speed_slider.value() + 1)
+                self.speed_slider.setValue(new_val)
+                self.last_trigger_time = time.time()
 
-            
     def set_mode(self, mode: str):
         """Set specific mode and update radio button"""
         if mode in self.mode_radios and mode != self.mode:
             # Validación: solo permitir si es un modo seguro
-            safe_modes = ["idle", "walk", "pronk", "situp","stop", "off"]
+            safe_modes = ["idle", "walk", "pronk", "situp"]
             if mode in safe_modes:
                 self.mode_radios[mode].setChecked(True)
                 self.mode = mode
@@ -883,8 +889,8 @@ class QuadControlGUI(QMainWindow):
 
     def send_command(self):
         """Send command to robot (called by timer)"""
-        command = self.build_command()
         if self.websocket and self.ws_connected:
+            command = self.build_command()
             try:
                 future = asyncio.run_coroutine_threadsafe(
                     self.websocket.send(json.dumps(command)),
@@ -1011,14 +1017,13 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     
-    # En def main():
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor("#222f3e"))
+    palette.setColor(QPalette.ColorRole.Window, QColor(34, 32, 71))
     palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Base, QColor("#34495e"))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#222f3e"))
+    palette.setColor(QPalette.ColorRole.Base, QColor(45, 45, 95))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(34, 32, 71))
     palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Button, QColor("#34495e"))
+    palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 95))
     palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
     app.setPalette(palette)
     

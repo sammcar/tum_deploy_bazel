@@ -24,6 +24,10 @@
 
 #include "mech/moteus.h"
 
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+
 namespace mjmech {
 namespace mech {
 
@@ -646,22 +650,83 @@ class Pi3hatWrapper::Impl {
   }
 
   void FinishAttitude(boost::posix_time::ptime now, AttitudeData* attitude) {
-    auto make_point = [](const auto& p) {
-      return base::Point3D(p.x, p.y, p.z);
-    };
-    auto make_quat = [](const auto& q) {
-      return base::Quaternion(q.w, q.x, q.y, q.z);
-    };
+    static int serial_fd = -1;
+
+    // 1. APERTURA Y BAUD RATE ROBUSTOS
+    if (serial_fd < 0) {
+      serial_fd = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NONBLOCK);
+      if (serial_fd >= 0) {
+        struct termios options;
+        tcgetattr(serial_fd, &options);
+        cfsetispeed(&options, B115200);
+        cfsetospeed(&options, B115200);
+
+        options.c_cflag |= (CS8 | CREAD | CLOCAL);
+        options.c_iflag &= ~(IXON | IXOFF | IXANY);
+        options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+        options.c_oflag &= ~OPOST;
+        tcsetattr(serial_fd, TCSANOW, &options);
+      } else {
+        return; // No se pudo abrir, intentará de nuevo en el siguiente ciclo
+      }
+    }
+
+    static unsigned char packet[11];
+    static int p_index = 0;
+    unsigned char current_byte;
+
+    // 2. LECTURA COMPATIBLE CON ALTA FRECUENCIA (O_NONBLOCK)
+    while (read(serial_fd, &current_byte, 1) > 0) {
+      if (p_index == 0 && current_byte != 0x55) continue;
+
+      packet[p_index++] = current_byte;
+
+      // Si tenemos el paquete completo (11 bytes)
+      if (p_index == 11) {
+        p_index = 0;
+
+        unsigned char type = packet[1]; // El tipo está en el byte 1
+        int16_t v[4];
+        for(int i = 0; i < 4; i++) {
+          v[i] = (int16_t)((packet[3 + i*2] << 8) | packet[2 + i*2]);
+        }
+
+        // 3. ACTUALIZACIÓN DE ESTRUCTURA Y ROTACIÓN NED
+        // Ejes: X = -Y_imu, Y = -X_imu, Z = -Z_imu
+        if (type == 0x51) {
+          attitude->accel_mps2.x() = (-1.0 * v[1] / 32768.0 * 16.0) * 9.80665;
+          attitude->accel_mps2.y() = (-1.0 * v[0] / 32768.0 * 16.0) * 9.80665;
+          attitude->accel_mps2.z() = (-1.0 * v[2] / 32768.0 * 16.0) * 9.80665;
+        }
+        else if (type == 0x52) {
+          attitude->rate_dps.x() = -1.0 * v[1] / 32768.0 * 2000.0;
+          attitude->rate_dps.y() = -1.0 * v[0] / 32768.0 * 2000.0;
+          attitude->rate_dps.z() = -1.0 * v[2] / 32768.0 * 2000.0;
+        }
+        else if (type == 0x53) {
+          double roll_deg  = -1.0 * v[1] / 32768.0 * 180.0;
+          double pitch_deg = -1.0 * v[0] / 32768.0 * 180.0;
+          double yaw_deg   = -1.0 * v[2] / 32768.0 * 180.0;
+
+          attitude->euler_deg.roll = roll_deg;
+          attitude->euler_deg.pitch = pitch_deg;
+          attitude->euler_deg.yaw = yaw_deg;
+
+          // Construcción del Cuaternión usando la API de mjmech/mjlib
+          attitude->attitude = base::Quaternion::FromEuler(
+              roll_deg * M_PI / 180.0,
+              pitch_deg * M_PI / 180.0,
+              yaw_deg * M_PI / 180.0
+          );
+        }
+      }
+    }
+
+    // 4. METADATOS REQUERIDOS POR EL CONTROLADOR
     attitude->timestamp = now;
-    attitude->attitude = make_quat(pi3data_.attitude.attitude);
-    attitude->rate_dps = make_point(pi3data_.attitude.rate_dps);
-    attitude->euler_deg = (180.0 / M_PI) * attitude->attitude.euler_rad();
-    attitude->accel_mps2 = make_point(pi3data_.attitude.accel_mps2);
-    attitude->bias_dps = make_point(pi3data_.attitude.bias_dps);
-    attitude->attitude_uncertainty =
-        make_quat(pi3data_.attitude.attitude_uncertainty);
-    attitude->bias_uncertainty_dps =
-        make_point(pi3data_.attitude.bias_uncertainty_dps);
+    attitude->bias_dps = base::Point3D(0, 0, 0);
+    attitude->bias_uncertainty_dps = base::Point3D(0, 0, 0);
+    attitude->attitude_uncertainty = base::Quaternion(1.0, 0.0, 0.0, 0.0);
   }
 
   void FinishRF(boost::posix_time::ptime now) {

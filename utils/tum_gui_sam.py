@@ -23,10 +23,13 @@ except ImportError:
 # === CONSTANTS ===
 CMD_MAX_RATE_Y = 0.2
 CMD_MAX_RATE_Z = math.radians(60)
+
 CMD_MAX_POSE_YAW = math.radians(20)
 CMD_MAX_POSE_PITCH = math.radians(11)
+CMD_MAX_POSE_ROLL = math.radians(15)  # NUEVO: Límite de Roll
 CMD_MAX_POSE_X = 0.05
 CMD_MAX_POSE_Y = 0.02
+CMD_MAX_POSE_Z = 0.06  # NUEVO: Límite de altura (6 cm arriba/abajo)
 
 @dataclass
 class RobotState:
@@ -269,14 +272,15 @@ class QuadControlGUI(QMainWindow):
         self.robot_state = RobotState()
         self.mode = "stop"
         self.max_speed = 0.5  # Start at 0.5 m/s (slower default)
-        
+
         # Joystick state
         self.joy_state = {
             "lx": 0, "ly": 0, "rx": 0, "ry": 0,
             "buttons": 0, "hat_x": 0, "hat_y": 0, "lt": 0, "rt": 0
         }
-        self.body_pose_mode = False
-        self.prev_buttons = 0  # <--- AÑADIR ESTA LÍNEA AQUÍ
+        # ¡CAMBIO AQUÍ! En lugar de False, iniciamos en modo velocidad
+        self.body_pose_mode = "velocity" 
+        self.prev_buttons = 0
         
         # Websocket
         self.websocket = None
